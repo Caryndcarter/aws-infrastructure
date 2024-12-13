@@ -1,6 +1,4 @@
-# Init Zero ⚛️ - Infrastructure Template 🏭👥
-
-TODO: update the project header (e.g., `SPONSOR - AWS Infrastructure 🌨️`) 
+# AWS Infrastructure 🏭👥
 
 AWS meta infrastructure management via CDK
 
