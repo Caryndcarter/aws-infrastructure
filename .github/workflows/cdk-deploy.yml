@@ -1,0 +1,102 @@
+name: Build AWS Infrastructure via CDK
+
+on:
+  push:
+    # TODO: Publish on main and or feature branches?
+    # branches:
+      # - main
+      # - feat/*
+    tags:
+      - deploy-*
+      - v*
+
+# * Do not use ${{ secrets }} in the `env` section
+env:
+  AWS_REGION: us-east-1
+  AWS_ROLE_ARN: ${{ vars.ACCOUNT_AWS_ROLE_ARN }}
+  CDK_ENV_HOSTED_ZONE_NAME: ${{ vars.CDK_ENV_HOSTED_ZONE_NAME }}
+  PROJECT_ENV: meta
+  PROJECT_KEY: infrastructure
+  PROJECT_NONCE: b558dfc0 # A radom string, usually eight hex
+  PROJECT_SERVICE: infrastructure
+  PROJECT_SPONSOR: initzero # Optional, name of the company or organization
+  SERVICE_EMAIL: "" # Optional, for Datadog Service Catalog. `platforms+infrastructure@initzero.xyz` is recommended
+  SERVICE_TEAM: "" # Optional, for Datadog Service Catalog. `infrastructure` is recommended
+# * Safer to use ${{ secrets }} below
+
+jobs:
+  deploy:
+    name: Deploy to AWS
+    permissions:
+      id-token: write # for aws-actions/configure-aws-credentials
+      contents: read # for actions/checkout
+    runs-on: ubuntu-latest
+    needs: [lint, test-unit]
+    steps:
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          role-session-name: DeployRoleForGitHubSession
+          aws-region: ${{ env.AWS_REGION }}
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm config set //registry.npmjs.org/:_authToken=${{ env.NPM_TOKEN }}
+        if: ${{ env.NPM_TOKEN != '' }}
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - run: npm ci
+      - run: npm run cdk deploy -- --all --require-approval never
+        env:
+          PROJECT_COMMIT: ${{ github.sha }}
+      ##
+      # Datadog Service Catalog Metadata Provider
+      ##
+      - uses: arcxp/datadog-service-catalog-metadata-provider@v2
+        if: env.DATADOG_CICD_API_KEY != '' && env.DATADOG_CICD_APP_KEY != '' && (env.SERVICE_EMAIL != '' || env.SERVICE_TEAM != '')
+        env:
+          DATADOG_CICD_API_KEY: ${{ secrets.DATADOG_CICD_API_KEY }}
+          DATADOG_CICD_APP_KEY: ${{ secrets.DATADOG_CICD_APP_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          datadog-app-key: ${{ secrets.DATADOG_CICD_APP_KEY }}
+          datadog-hostname: app.datadoghq.com
+          datadog-key: ${{ secrets.DATADOG_CICD_API_KEY }}
+          email: ${{ env.SERVICE_EMAIL }}
+          # org-rules-file: .github/service-catalog-rules.yml
+          schema-version: v2.2
+          service-name: ${{ env.PROJECT_SERVICE }}
+          team: ${{ env.SERVICE_TEAM }}
+  lint:
+    name: Lint (before deploy)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm config set //registry.npmjs.org/:_authToken=${{ env.NPM_TOKEN }}
+        if: ${{ env.NPM_TOKEN != '' }}
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - run: npm ci
+      - run: npm run lint
+  test-unit:
+    name: Unit Test (before deploy)
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [20.x, 22.x]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'npm'
+      - run: npm config set //registry.npmjs.org/:_authToken=${{ env.NPM_TOKEN }}
+        if: ${{ env.NPM_TOKEN != '' }}
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - run: npm ci
+      - run: npm test
