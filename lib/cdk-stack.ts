@@ -32,6 +32,11 @@ export class CdkStack extends cdk.Stack {
         zoneName: config.hostedZoneName,
       });
       cdk.Tags.of(hostedZone).add(CDK.TAG.ROLE, CDK.ROLE.NETWORKING);
+      if (hostedZone.hostedZoneNameServers && Array.isArray(hostedZone.hostedZoneNameServers)) {
+        new cdk.CfnOutput(this, "HostedZoneNameServers", {
+          value: cdk.Fn.join(",", hostedZone.hostedZoneNameServers),
+        });
+      }
     }
   }
 }
